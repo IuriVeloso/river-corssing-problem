@@ -4,25 +4,95 @@
 #include <pthread.h>
 #include <time.h>
 
-#define MAX_BOAT_VISITORS 20
+#define MAX_BOAT_VISITORS 8
 
 #define ARRIVED_HACKER 0
 #define ARRIVED_SERF 1
 
+int passengersOnBoard = 0;
+int totalPassengers = 0;
+
 time_t t;
 
+pthread_cond_t boarding = PTHREAD_COND_INITIALIZER;
+pthread_cond_t passengerBoarded = PTHREAD_COND_INITIALIZER;
+
+int isBoardOpen = 0;
+
+pthread_mutex_t mutexCountPassengers = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexCanBoard = PTHREAD_MUTEX_INITIALIZER;
+
 void *serf(void *args) {
-    printf("Vai o serf\n");
+    printf("\n\n1- Serf aguarda para embarcar %d!\n", *(int *)args);
+
+    pthread_mutex_lock(&mutexCanBoard);
+    while(isBoardOpen == 0){
+        pthread_cond_wait(&boarding, &mutexCanBoard);
+    }
+    pthread_mutex_unlock(&mutexCanBoard);
+    printf("\n2- Serf esta embarcando %d\n", *(int *)args);
+
+    pthread_mutex_lock(&mutexCountPassengers);
+    passengersOnBoard ++;
+    pthread_cond_signal(&passengerBoarded);
+
+    pthread_mutex_unlock(&mutexCountPassengers);
+    printf("\n3- Vai o serf %d\n\n", *(int *)args);
+
     pthread_exit(NULL);
 }
 
 void *hacker(void *args) {
-    printf("Vai o hacker\n");
+    printf("\n\n1 -Hacker aguarda para embarcar %d!\n", *(int *)args);
+
+    pthread_mutex_lock(&mutexCanBoard);
+    while(isBoardOpen == 0){
+        pthread_cond_wait(&boarding, &mutexCanBoard);
+    }
+    pthread_mutex_unlock(&mutexCanBoard);
+
+    printf("\n2 -Hacker esta embarcando %d\n", *(int *)args);
+    
+    pthread_mutex_lock(&mutexCountPassengers);
+    passengersOnBoard ++;
+    pthread_cond_signal(&passengerBoarded);
+
+    pthread_mutex_unlock(&mutexCountPassengers);
+    printf("\n3 -Vai o hacker %d\n\n", *(int *)args);
+
     pthread_exit(NULL);
 }
 
 void *barco(void *args) {
     printf("\n\nIniciando as viagens do dia!\n\n");
+
+    while(totalPassengers < MAX_BOAT_VISITORS){
+        printf("\n\nEnchendo o barco %d\n\n", totalPassengers);
+        
+        pthread_mutex_lock(&mutexCanBoard);
+        isBoardOpen = 1;
+
+        pthread_cond_signal(&boarding);
+        pthread_mutex_unlock(&mutexCanBoard);
+
+        
+        pthread_mutex_lock(&mutexCountPassengers);
+        while(passengersOnBoard < 4){
+            pthread_cond_wait(&passengerBoarded, &mutexCountPassengers);
+        }
+        printf("\n\nPartiu um barco\n\n");
+        pthread_mutex_unlock(&mutexCountPassengers);
+
+        pthread_mutex_lock(&mutexCanBoard);
+        isBoardOpen = 0;
+        pthread_mutex_unlock(&mutexCanBoard);
+
+        pthread_mutex_lock(&mutexCountPassengers);
+        passengersOnBoard = 0;
+        pthread_mutex_unlock(&mutexCountPassengers);
+
+        totalPassengers += 4;
+    }
     pthread_exit(NULL);
 }
 
@@ -31,6 +101,7 @@ int main(void) {
     pthread_t threadHackers[MAX_BOAT_VISITORS];
     pthread_t threadSerfs[MAX_BOAT_VISITORS];
 
+    int idsClientes[MAX_BOAT_VISITORS];
     // Thread do barco
     pthread_t threadBarco;
 
@@ -42,12 +113,13 @@ int main(void) {
 
     for(int i =0; i< MAX_BOAT_VISITORS; i++){
          passengerArrival = rand()%2;
+         idsClientes[i] = i;
          if (passengerArrival == ARRIVED_SERF){
-            printf("Chegou um serf\n");
-            pthread_create(&threadSerfs[i], NULL, serf, NULL);
+            pthread_create(&threadSerfs[i], NULL, serf, &idsClientes[i]);
+            printf("Chegou um serf %d\n", i);
          } else if (passengerArrival == ARRIVED_HACKER) {
-            printf("Chegou um hacker\n");
-            pthread_create(&threadHackers[i], NULL, hacker, NULL);
+            pthread_create(&threadHackers[i], NULL, hacker, &idsClientes[i]);
+            printf("Chegou um hacker %d\n", i);
          } else {
             printf("Não foi possível identificar quem chegou. (Seed problem)\n");
          }
